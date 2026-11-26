@@ -1,18 +1,29 @@
 from datetime import datetime, timedelta
-import json, urllib.request, urllib.parse, re
+import json, urllib.request, urllib.parse, urllib.error, re
 from flask import Response
 
 def install(app, engine, query, rows, auth, fail):
  from flask import request, session, jsonify
  import os, secrets
  def provider(params):
-  key=os.getenv('SERPAPI_KEY')
-  if not key: raise ValueError('Live pricing is not configured')
+  key=os.getenv('SERPAPI_KEY','').strip()
+  label='Flight' if params.get('engine')=='google_flights' else 'Hotel'
+  if not key: raise ValueError('Live pricing is not configured: missing SERPAPI_KEY')
   params.update(api_key=key,currency='INR',hl='en',gl='in')
   try:
    with urllib.request.urlopen('https://serpapi.com/search.json?'+urllib.parse.urlencode(params),timeout=25) as r: data=json.load(r)
-  except Exception: raise ValueError('Travel provider unavailable or quota exhausted')
-  if data.get('error'): raise ValueError('Travel provider could not complete this search')
+  except urllib.error.HTTPError as e:
+   app.logger.warning('%s provider HTTP status %s',label,e.code)
+   if e.code in (401,403): raise ValueError(label+' provider authentication failed; check API key')
+   if e.code==429: raise ValueError(label+' provider rate limit or quota reached')
+   if e.code==400: raise ValueError(label+' provider rejected search parameters; check airport codes and dates')
+   raise ValueError(label+' provider returned HTTP '+str(e.code))
+  except (urllib.error.URLError,TimeoutError,OSError,ValueError):
+   app.logger.warning('%s provider connection or response failed',label)
+   raise ValueError(label+' provider unavailable; try again later')
+  if data.get('error'):
+   app.logger.warning('%s provider returned an error response',label)
+   raise ValueError(label+' provider could not complete this search; check search inputs and SerpApi dashboard')
   return data
  @app.post('/api/live')
  @auth()
@@ -32,7 +43,8 @@ def install(app, engine, query, rows, auth, fail):
     p=x.get('total_rate',{}).get('extracted_lowest'); rate=x.get('rate_per_night',{}).get('extracted_lowest')
     if not isinstance(p,(int,float)) and isinstance(rate,(int,float)): p=rate*nights
     if isinstance(p,(int,float)) and p>0: hotels.append(dict(name=x.get('name','Hotel'),price=round(p),details=str(x.get('overall_rating','Unrated'))+' rating'))
-   if not flights or not hotels: return fail('No priced flight and hotel combination found',404)
+   if not flights: return fail('No priced flights found for these airports and date',404)
+   if not hotels: return fail('No priced hotels found for this city and stay',404)
    qid=secrets.token_hex(16); payload=dict(flights=flights,hotels=hotels,date=str(start),nights=nights,people=people,origin=origin,destination=dest,city=city)
    with engine.begin() as c: query(c,'INSERT INTO live_quotes VALUES (:id,:u,:p,:e)',id=qid,u=session['uid'],p=json.dumps(payload),e=int(datetime.now().timestamp())+900)
    return jsonify(id=qid,**payload)
