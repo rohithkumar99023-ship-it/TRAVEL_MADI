@@ -11,7 +11,7 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', S
 url=os.getenv('DATABASE_URL','sqlite:///travelmadi.db').replace('postgres://','postgresql+psycopg://',1)
 if url.startswith('postgresql://'): url=url.replace('postgresql://','postgresql+psycopg://',1)
 engine=create_engine(url,pool_pre_ping=True)
-def query(c,s,**p): return c.execute(text(s),p)
+def query(conn,s,**p): return conn.execute(text(s),p)
 def rows(r): return [dict(x) for x in r.mappings()]
 def init():
  with engine.begin() as c:
