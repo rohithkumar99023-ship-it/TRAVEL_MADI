@@ -5,7 +5,7 @@ from flask import Flask, request, session, jsonify, render_template
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
-app=Flask(__name__)
+app=Flask(__name__, template_folder=".")
 app.secret_key=os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=os.getenv('COOKIE_SECURE')=='1')
 url=os.getenv('DATABASE_URL','sqlite:///travelmadi.db').replace('postgres://','postgresql+psycopg://',1)
